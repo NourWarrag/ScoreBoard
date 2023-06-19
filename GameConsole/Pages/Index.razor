@@ -1,0 +1,68 @@
+﻿@page "/"
+@using GameConsole;
+@using ScoreBoard.Shared;
+
+@inject GameConsoleInfo gameConsole;
+@inject Program.HubClient hubClient;
+
+<PageTitle>Home</PageTitle>
+
+<p role="status">Score: @currentScore</p>
+<div class="row">
+
+    <button class="btn btn-primary" @onclick="IncrementScore" disabled="@(gameConsole.Status == Status.Stopped)">Increment Score</button>
+
+</div>
+<div class="row">
+    <button class="btn btn-danger" @onclick="StopGame" disabled="@(gameConsole.Status == Status.Stopped)">Stop Game</button>
+
+</div>
+
+<div class="row">
+<button class="btn btn-secondary" @onclick=" ()=> startGame = true" disabled="@(gameConsole.Status == Status.Running)">Start</button>
+
+</div>
+@if(startGame){
+    <div class="row">
+        <input class="form-control" type="text" placeholder="Player Name" aria-label="Player Name" @bind-value="playerName">
+    </div>
+    <div class="row">
+        <button class="btn btn-primary" @onclick="StartGame">Start Game</button>
+
+    </div>
+}
+
+@code {
+    private int currentScore = 0;
+    private bool startGame;
+    private string playerName = "";
+    private async Task IncrementScore()
+    {
+        gameConsole.Score++;
+        currentScore++;
+        if(gameConsole.Type == ConsoleType.New)
+        {
+            await hubClient.IncreaseScore(gameConsole.Number, 1);
+        }
+
+    }
+    private async Task StopGame()
+    {
+        gameConsole.Status = Status.Stopped;
+        await hubClient.EndGame(gameConsole.Number);
+
+    }
+    private async Task StartGame()
+    {
+        gameConsole.Score = 0;
+        currentScore = 0;
+        gameConsole.PlayerName = playerName == "" ? "player": playerName ;
+        gameConsole.Status = Status.Running;
+
+        await hubClient.StartNewGame(gameConsole.Number, gameConsole.PlayerName);
+
+        startGame = false;
+
+        StateHasChanged();
+    }
+}

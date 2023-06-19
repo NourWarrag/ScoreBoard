@@ -1,0 +1,107 @@
+﻿@page "/"
+@using ScoreBoard.Shared
+@using Microsoft.AspNetCore.SignalR.Client
+@using Microsoft.Extensions.Logging.Console;
+@using System.Text.Json;
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+@inject HttpClient Http
+
+<PageTitle>Index</PageTitle>
+
+<div class="text-center">
+    <ol class="list-group list-group-numbered">
+        @if (Consoles == null)
+        {
+            <p><em>Loading...</em></p>
+        }
+        else
+        {
+            @foreach (var console in Consoles)
+            {
+                string statusCssClass = @console.Status == @Status.Running ? "bg-primary" : "bg-danger";
+                <li class="list-group-item d-flex justify-content-between align-items-start">
+                    <div class="ms-2 me-auto">
+                        <div class="fw-bold">Console Number: @console.Number , Player Name: @console.PlayerName</div>
+                       Score: <span class="badge bg-primary rounded-pill">@console.Score</span>
+
+                        <span class="badge @statusCssClass rounded-pill">@console.Status</span>
+                    </div>
+                    @if (@console.Type == ConsoleType.Old)
+                    {
+                        <button class="btn btn-primary" @onclick="async () => await UpdateScore(console.Number)" disabled="@(console.Status == Status.Stopped)">Update</button>
+                        
+                    }
+                </li>
+
+            } 
+        }
+
+    </ol>
+</div>
+
+
+@code {
+    private List<GameConsoleInfo>? Consoles;
+    private HubConnection? hubConnection;
+
+    protected override async Task OnInitializedAsync()
+    {
+        hubConnection = new HubConnectionBuilder()
+           .WithUrl(Navigation.ToAbsoluteUri("/scoreboardHub"))
+            .WithAutomaticReconnect()
+                   .ConfigureLogging(logging => {
+                       logging.SetMinimumLevel(LogLevel.Information);
+                       logging.AddConsole();
+                   })
+           .Build();
+
+        hubConnection.On<List<GameConsoleInfo>>("UpdateScoreboard", (message) =>
+        {
+            Consoles = message.OrderByDescending(i => i?.Score).ToList(); 
+
+            StateHasChanged();
+        });
+
+        await hubConnection.StartAsync();
+
+
+
+        var result = await Http.GetFromJsonAsync<List<GameConsoleInfo>>("GameConsole");
+        Consoles = result?.OrderByDescending(i => i?.Score).ToList();
+    }
+
+    private async ValueTask UpdateScore(int consoleNumber)
+    {
+        var console = Consoles.Where(i => i.Number == consoleNumber).FirstOrDefault();
+
+        try
+        {
+
+            using var client = new HttpClient();
+
+            var content = await client.GetFromJsonAsync<ConsoleScoreRespone>(console.Url + "/gameconsole/score");
+            console.Score = content.Score;
+            console.Status = content.Status;
+            console.PlayerName = content.PlayerName;
+            
+            Consoles = Consoles?.OrderByDescending(i => i?.Score).ToList();
+
+            StateHasChanged();
+
+        }
+        catch (Exception e)
+        {
+            console.Status = Status.Stopped;
+            var result = await Http.PostAsync($"GameConsole/{console.Id}/stop",null);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
